@@ -1,0 +1,1 @@
+from .manga109api import Parser
