@@ -1,19 +1,33 @@
 import torch
 from coco_eval import CocoEvaluator
 from torch.utils.data import DataLoader
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
-import numpy as np
 from transformers import DetrImageProcessor
 
 from dataset import Manga109Dataset
 from model import Detr
-from train import collate_fn
+
+
+def collate_fn(batch):
+    # DETR authors employ various image sizes during training, making it not possible
+    # to directly batch together images. Hence they pad the images to the biggest
+    # resolution in a given batch, and create a corresponding binary pixel_mask
+    # which indicates which pixels are real/which are padding
+    pixel_values = [item[0] for item in batch]
+    encoding = image_processor.pad(pixel_values, return_tensors="pt")
+    labels = [item[1] for item in batch]
+    return {
+        'pixel_values': encoding['pixel_values'],
+        'pixel_mask': encoding['pixel_mask'],
+        'labels': labels
+    }
 
 
 def convert_to_xywh(boxes):
     xmin, ymin, xmax, ymax = boxes.unbind(1)
     return torch.stack((xmin, ymin, xmax - xmin, ymax - ymin), dim=1)
+
 
 def prepare_for_coco_detection(predictions):
     coco_results = []
@@ -40,19 +54,23 @@ def prepare_for_coco_detection(predictions):
     return coco_results
 
 
-DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+DEVICE = torch.device('cpu')
 
 print("Running evaluation...")
 image_processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
 TEST_DATASET = Manga109Dataset(
-    image_directory_path="Dataset/test/image",
+    image_directory_path="Dataset/test/images",
     image_processor=image_processor,
     train=False)
 
 TEST_DATALOADER = DataLoader(dataset=TEST_DATASET, collate_fn=collate_fn, batch_size=4)
 evaluator = CocoEvaluator(coco_gt=TEST_DATASET.coco, iou_types=["bbox"])
-CHECKPOINT = ""
+CHECKPOINT = "facebook/detr-resnet-50"
 model = Detr(lr=1e-4, lr_backbone=1e-5, weight_decay=1e-4, num_labels=4, CHECKPOINT=CHECKPOINT)
+
+checkpoint_path = "lightning_logs/version_0/checkpoints/epoch=9-step=580.ckpt"
+checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
+model.load_state_dict(checkpoint["state_dict"])
 
 for idx, batch in enumerate(tqdm(TEST_DATALOADER)):
     pixel_values = batch["pixel_values"].to(DEVICE)
@@ -72,3 +90,7 @@ for idx, batch in enumerate(tqdm(TEST_DATALOADER)):
 evaluator.synchronize_between_processes()
 evaluator.accumulate()
 evaluator.summarize()
+
+# Get the mAP from the evaluator
+mAP = evaluator.coco_eval['bbox'].stats[0]
+print(f"mAP: {mAP}")

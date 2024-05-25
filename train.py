@@ -2,7 +2,7 @@
 from torch.utils.data import DataLoader
 from transformers import DetrImageProcessor
 from pytorch_lightning import Trainer
-
+import os
 from dataset import Manga109Dataset
 from model import Detr
 
@@ -25,11 +25,11 @@ def collate_fn(batch):
 
 
 TRAIN_DATASET = Manga109Dataset(
-    image_directory_path="Dataset/train/image",
+    image_directory_path="Dataset/train/images",
     image_processor=image_processor,
     train=True)
 VAL_DATASET = Manga109Dataset(
-    image_directory_path="Dataset/valid/image",
+    image_directory_path="Dataset/valid/images",
     image_processor=image_processor,
     train=False)
 
@@ -40,5 +40,12 @@ CHECKPOINT= "facebook/detr-resnet-50"
 
 
 model = Detr(lr=1e-4, lr_backbone=1e-5, weight_decay=1e-4, num_labels=4, train_loder=TRAIN_DATALOADER, valid_loader=VAL_DATALOADER, CHECKPOINT=CHECKPOINT)
-trainer = Trainer(devices=1, accelerator="cpu", max_epochs=MAX_EPOCHS, gradient_clip_val=0.1, accumulate_grad_batches=8, log_every_n_steps=5)
+trainer = Trainer(
+    devices=1,                   # Number of devices to use (1 for CPU)
+    accelerator="gpu",           # Use CPU as the accelerator
+    max_epochs=MAX_EPOCHS,       # Maximum number of epochs
+    gradient_clip_val=0.1,       # Gradient clipping value
+    accumulate_grad_batches=8,   # Number of batches to accumulate for gradient updates
+    log_every_n_steps=5          # Logging frequency
+)
 trainer.fit(model)
